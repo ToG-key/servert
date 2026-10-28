@@ -5,7 +5,7 @@ import threading
 import sys
 
 # ---------- CẤU HÌNH ----------
-SERVER_URL = os.environ.get("SERVER_URL", "https://your-app.onrender.com")
+SERVER_URL = os.environ.get("SERVER_URL", "https://stog-eqfn.onrender.com")
 
 sio = socketio.Client(
     reconnection=True,

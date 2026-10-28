@@ -12,9 +12,6 @@ app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
 # eventlet giúp WebSocket chạy mượt trên Render
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
-# ---------- MÃ BÍ MẬT ADMIN ----------
-ADMIN_SECRET_KEY = "Toriginal" 
-
 # ---------- LƯU TRỮ ----------
 clients = {}    # client_id -> {"sid", "hostname", "os", "room", "ip", "last_seen"}
 admins = set()  # set các sid admin
@@ -92,15 +89,8 @@ def on_register(data):
         emit("registered", {"ok": True, "client_id": client_id})
 
     elif role == "admin":
-        # --- KIỂM TRA MÃ BÍ MẬT ---
-        admin_key = data.get("key")
-        if admin_key != ADMIN_SECRET_KEY:
-            print(f"[-] TỪ CHỐI ADMIN: Sai mã bí mật từ {request.remote_addr}")
-            emit("error", {"message": "Sai mã bí mật Admin!"})
-            return # Từ chối kết nối, không thêm vào danh sách admins
-
         admins.add(sid)
-        print(f"[ADMIN+] {request.remote_addr} đã đăng nhập thành công")
+        print(f"[ADMIN+] {request.remote_addr}")
         emit("registered", {"ok": True})
         emit("admin_event", {
             "event": "init",

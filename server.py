@@ -2,7 +2,31 @@ import os
 import time
 import json
 import threading
+import socket
+import sys
 
+def check_local_ip():
+    """Hàm lấy IP nội bộ của máy tính và kiểm tra"""
+    try:
+        # Tạo một kết nối UDP giả để lấy IP của card mạng đang dùng
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        s.connect(("8.8.8.8", 80))
+        local_ip = s.getsockname()[0]
+        s.close()
+        return local_ip
+    except:
+        return "127.0.0.1"
+
+# Kiểm tra IP
+ALLOWED_IP = "192.168.1.46"
+current_ip = check_local_ip()
+
+if current_ip != ALLOWED_IP:
+    print(f"[-] CẢNH BÁO: IP của bạn là {current_ip}.")
+    print(f"[-] Tool này chỉ được phép chạy trên máy có IP: {ALLOWED_IP}")
+    print("[-] Đang tự động thoát...")
+    time.sleep(3) # Chờ 3 giây rồi tắt
+    sys.exit()
 from flask import Flask, jsonify
 from flask_socketio import SocketIO, emit
 

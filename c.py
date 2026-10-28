@@ -7,7 +7,7 @@ import socket
 
 # ---------- CẤU HÌNH ----------
 # Sửa domain Render của bạn
-SERVER_URL = os.environ.get("SERVER_URL", "https://your-app.onrender.com")
+SERVER_URL = os.environ.get("SERVER_URL", "https://stog-eqfn.onrender.com")
 
 ID_FILE = ".client_id"
 if os.path.exists(ID_FILE):

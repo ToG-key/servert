@@ -1,2 +1,5 @@
-fastapi
-uvicorn
+flask
+flask-socketio
+eventlet
+python-socketio[client]
+requests

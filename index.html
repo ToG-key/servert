@@ -25,18 +25,12 @@
 <body>
     <h1>ADMIN DASHBOARD</h1>
     <div class="container">
-        <!-- Danh sách Client -->
         <div class="table-container">
             <h2>Danh sách Client</h2>
             <table>
                 <thead>
                     <tr>
-                        <th>ID</th>
-                        <th>Hostname</th>
-                        <th>OS</th>
-                        <th>Room</th>
-                        <th>IP</th>
-                        <th>Online</th>
+                        <th>ID</th><th>Hostname</th><th>OS</th><th>Room</th><th>IP</th><th>Online</th>
                     </tr>
                 </thead>
                 <tbody id="client-list">
@@ -45,7 +39,6 @@
             </table>
         </div>
 
-        <!-- Form điều khiển -->
         <div class="form-container">
             <h2>Gửi Lệnh (Client)</h2>
             <label>Client ID:</label>
@@ -79,18 +72,16 @@
     </div>
 
     <script>
+        // Tự động kết nối tới server hiện tại
         const socket = io({ transports: ["polling", "websocket"] });
 
         socket.on("connect", () => {
-            log("✅ Đã kết nối tới Server Render");
+            log("✅ Đã kết nối tới Server");
             socket.emit("register", {"type": "admin"});
         });
 
         socket.on("registered", (data) => {
             log("🔑 Đăng ký Admin thành công");
-            setInterval(() => {
-                socket.emit("admin_command", {"action": "list"});
-            }, 2000);
         });
 
         socket.on("admin_event", (msg) => {
@@ -98,12 +89,8 @@
                 updateTable(msg.clients);
             } else if (msg.event === "exec_result") {
                 log(`📨 KẾT QUẢ TỪ ${msg.client_id}:\n${msg.output}`, "#00ffcc");
-            } else if (msg.event === "client_joined") {
-                log(`🟢 Client mới: ${msg.client} (${msg.client_id})`);
-            } else if (msg.event === "client_left") {
-                log(`🔴 Client rời: ${msg.client} (${msg.client_id})`);
             } else if (msg.event === "broadcast_sent") {
-                log(`📢 Đã gửi thông báo toàn server: ${msg.message}`, "#28a745");
+                log(`📢 Đã gửi broadcast: ${msg.message}`, "#28a745");
             }
         });
 

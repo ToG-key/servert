@@ -72,18 +72,15 @@
     </div>
 
     <script>
-        // Tự động kết nối tới server hiện tại
         const socket = io({ transports: ["polling", "websocket"] });
 
+        // 1. KẾT NỐI VÀ ĐĂNG KÝ ADMIN
         socket.on("connect", () => {
             log("✅ Đã kết nối tới Server");
             socket.emit("register", {"type": "admin"});
         });
 
-        socket.on("registered", (data) => {
-            log("🔑 Đăng ký Admin thành công");
-        });
-
+        // 2. NHẬN DỮ LIỆU CẬP NHẬT TỪ SERVER
         socket.on("admin_event", (msg) => {
             if (msg.event === "init" || msg.event === "clients") {
                 updateTable(msg.clients);
@@ -93,6 +90,13 @@
                 log(`📢 Đã gửi broadcast: ${msg.message}`, "#28a745");
             }
         });
+
+        // 3. TỰ ĐỘNG GỬI LỆNH XIN DỮ LIỆU MỖI 1 GIÂY
+        setInterval(() => {
+            if (socket.connected) {
+                socket.emit("admin_command", {"action": "list"});
+            }
+        }, 1000);
 
         function updateTable(clients) {
             const tbody = document.getElementById("client-list");

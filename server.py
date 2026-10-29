@@ -2,33 +2,34 @@ import os
 import time
 import json
 import threading
-
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO, emit
 
-app = Flask(__name__)
+app = Flask(__name__, static_folder='.', static_url_path='')
 app.config["SECRET_KEY"] = os.environ.get("SECRET_KEY", "change-me")
 
 # eventlet giúp WebSocket chạy mượt trên Render
 socketio = SocketIO(app, cors_allowed_origins="*", async_mode="eventlet")
 
 # ---------- LƯU TRỮ ----------
-clients = {}    # client_id -> {"sid", "hostname", "os", "room", "ip", "last_seen"}
-admins = set()  # set các sid admin
+clients = {}
+admins = set()
 lock = threading.Lock()
-
-CLIENT_TIMEOUT = 15   # giây không heartbeat = offline
-
+CLIENT_TIMEOUT = 15
 
 # ---------- HTTP ENDPOINTS ----------
 @app.route("/")
+def serve_index():
+    # Trả về file index.html khi truy cập trang chủ
+    return send_from_directory('.', 'index.html')
+
+@app.route("/status")
 def home():
     return jsonify({
         "status": "ok",
         "clients": len(clients),
         "admins": len(admins),
     })
-
 
 def snapshot_clients():
     now = time.time()
@@ -46,7 +47,6 @@ def snapshot_clients():
             if now - info["last_seen"] <= CLIENT_TIMEOUT
         ]
 
-
 def notify_admins(event, data):
     payload = {"event": event, **data}
     for sid in list(admins):
@@ -55,17 +55,13 @@ def notify_admins(event, data):
         except:
             admins.discard(sid)
 
-
 # ---------- SOCKET EVENTS ----------
 @socketio.on("connect")
 def on_connect(auth):
     print(f"[+] New connection: {auth}")
 
-
 @socketio.on("register")
 def on_register(data):
-    """Message đầu tiên client/admin gửi lên"""
-    from flask import request
     sid = request.sid
     role = data.get("type")
 
@@ -97,20 +93,16 @@ def on_register(data):
             "clients": snapshot_clients(),
         })
 
-
 @socketio.on("heartbeat")
 def on_heartbeat(data):
-    from flask import request
     client_id = data.get("client_id")
     with lock:
         if client_id in clients and clients[client_id]["sid"] == request.sid:
             clients[client_id]["last_seen"] = time.time()
     emit("pong", {})
 
-
 @socketio.on("admin_command")
 def on_admin_command(data):
-    from flask import request
     if request.sid not in admins:
         return
     action = data.get("action")
@@ -128,23 +120,40 @@ def on_admin_command(data):
             print(f"[ADMIN→{c['hostname']}] {msg}")
             emit("admin_event", {"event": "sent", "ok": True, "client_id": target})
         else:
-            emit("admin_event", {
-                "event": "sent", "ok": False, "error": "client not found"
-            })
+            emit("admin_event", {"event": "sent", "ok": False, "error": "client not found"})
+    
+    # --- TÍNH NĂNG MỚI: GỬI TIN NHẮN TOÀN BỘ ---
+    elif action == "broadcast":
+        msg = data.get("message", "")
+        if msg:
+            # Gửi tới tất cả các client đang online
+            for cid, info in clients.items():
+                socketio.emit("admin_msg", {"message": f"[THÔNG BÁO] {msg}"}, to=info["sid"])
+            
+            # Gửi thông báo tới tất cả admin khác
+            notify_admins("broadcast_sent", {"message": msg})
+            
+            # Phản hồi cho admin đang gửi
+            emit("admin_event", {"event": "broadcast_sent", "ok": True, "message": msg})
 
+@socketio.on("exec_result")
+def on_exec_result(data):
+    admin_sid = data.get("admin_sid")
+    if admin_sid:
+        socketio.emit("admin_event", {
+            "event": "exec_result",
+            "output": data.get("output", ""),
+            "client_id": data.get("client_id", "")
+        }, to=admin_sid)
 
 @socketio.on("disconnect")
 def on_disconnect():
-    from flask import request
     sid = request.sid
-
-    # Nếu là admin
     if sid in admins:
         admins.discard(sid)
         print(f"[ADMIN-] {sid}")
         return
 
-    # Nếu là client → tìm và xoá
     removed = None
     with lock:
         for cid, info in list(clients.items()):
@@ -157,7 +166,6 @@ def on_disconnect():
         notify_admins("client_left", {
             "client": removed[1], "client_id": removed[0]
         })
-
 
 # ---------- MAIN ----------
 if __name__ == "__main__":

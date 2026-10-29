@@ -4,7 +4,6 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Admin Dashboard</title>
-    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
     <style>
         body { font-family: Arial, sans-serif; background-color: #1e1e1e; color: #fff; margin: 0; padding: 20px; }
         h1 { color: #00ffcc; text-align: center; }
@@ -66,36 +65,25 @@
             <textarea id="broadcast-msg" rows="2" placeholder="Nhập thông báo..."></textarea>
             <button onclick="sendBroadcast()" style="background-color: #28a745;">GỬI THÔNG BÁO</button>
 
-            <h2>Kết quả / Log</h2>
+            <h2>Log</h2>
             <div class="log-box" id="log-box"></div>
         </div>
     </div>
 
     <script>
-        // Sử dụng polling làm giao thức chính để tránh bị chặn
-        const socket = io({ transports: ["polling", "websocket"] });
-
-        socket.on("connect", () => {
-            log("✅ Đã kết nối tới Server");
-            socket.emit("register", {"type": "admin"});
-        });
-
-        socket.on("admin_event", (msg) => {
-            if (msg.event === "init" || msg.event === "clients") {
-                updateTable(msg.clients);
-            } else if (msg.event === "exec_result") {
-                log(`📨 KẾT QUẢ TỪ ${msg.client_id}:\n${msg.output}`, "#00ffcc");
-            } else if (msg.event === "broadcast_sent") {
-                log(`📢 Đã gửi broadcast: ${msg.message}`, "#28a745");
+        // Hàm lấy danh sách Client liên tục bằng fetch
+        async function fetchClients() {
+            try {
+                const response = await fetch('/api/clients');
+                const clients = await response.json();
+                updateTable(clients);
+            } catch (error) {
+                console.error("Lỗi lấy danh sách:", error);
             }
-        });
+        }
 
-        // CƠ CHẾ QUAN TRỌNG: Tự động xin dữ liệu mỗi 1 giây
-        setInterval(() => {
-            if (socket.connected) {
-                socket.emit("admin_command", {"action": "list"});
-            }
-        }, 1000);
+        // Tự động gọi mỗi 1 giây
+        setInterval(fetchClients, 1000);
 
         function updateTable(clients) {
             const tbody = document.getElementById("client-list");
@@ -121,7 +109,7 @@
             document.getElementById("file-fields").style.display = (type === "exec") ? "none" : "block";
         }
 
-        function sendCommand() {
+        async function sendCommand() {
             const cid = document.getElementById("client-id").value.trim();
             const type = document.getElementById("action-type").value;
             const filename = document.getElementById("filename").value.trim();
@@ -138,23 +126,24 @@
                 cmd = `echo ${content} > ${filename} && start ${filename}`;
             }
 
-            socket.emit("admin_command", {
-                "action": "exec",
-                "client_id": cid,
-                "command": cmd
+            await fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'exec', client_id: cid, command: cmd })
             });
             log(`📤 Đã gửi lệnh tới ${cid}`, "#ffc107");
         }
 
-        function sendBroadcast() {
+        async function sendBroadcast() {
             const msg = document.getElementById("broadcast-msg").value.trim();
             if (!msg) return alert("Vui lòng nhập nội dung thông báo!");
             
-            socket.emit("admin_command", {
-                "action": "broadcast",
-                "message": msg
+            await fetch('/api/command', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'broadcast', message: msg })
             });
-            
+            log(`📢 Đã gửi thông báo!`, "#28a745");
             document.getElementById("broadcast-msg").value = ""; 
         }
 

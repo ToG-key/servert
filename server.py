@@ -3,7 +3,7 @@ import time
 import json
 import threading
 
-from flask import Flask, jsonify
+from flask import Flask, jsonify, request
 from flask_socketio import SocketIO, emit
 
 app = Flask(__name__)
@@ -65,7 +65,6 @@ def on_connect(auth):
 @socketio.on("register")
 def on_register(data):
     """Message đầu tiên client/admin gửi lên"""
-    from flask import request
     sid = request.sid
     role = data.get("type")
 
@@ -100,7 +99,6 @@ def on_register(data):
 
 @socketio.on("heartbeat")
 def on_heartbeat(data):
-    from flask import request
     client_id = data.get("client_id")
     with lock:
         if client_id in clients and clients[client_id]["sid"] == request.sid:
@@ -110,7 +108,6 @@ def on_heartbeat(data):
 
 @socketio.on("admin_command")
 def on_admin_command(data):
-    from flask import request
     if request.sid not in admins:
         return
     action = data.get("action")
@@ -131,11 +128,36 @@ def on_admin_command(data):
             emit("admin_event", {
                 "event": "sent", "ok": False, "error": "client not found"
             })
+            
+    # ---- PHẦN THÊM MỚI: CHẠY LỆNH TỪ XA ----
+    elif action == "exec":
+        target = data.get("client_id")
+        cmd = data.get("command", "")
+        with lock:
+            c = clients.get(target)
+        if c:
+            # Chuyển lệnh xuống client
+            socketio.emit("exec_command", {"command": cmd, "admin_sid": request.sid}, to=c["sid"])
+            print(f"[ADMIN→{c['hostname']}] EXEC: {cmd}")
+            emit("admin_event", {"event": "exec_sent", "ok": True, "client_id": target})
+        else:
+            emit("admin_event", {"event": "exec_sent", "ok": False, "error": "client not found"})
+
+
+# ---- PHẦN THÊM MỚI: NHẬN KẾT QUẢ TỪ CLIENT ----
+@socketio.on("exec_result")
+def on_exec_result(data):
+    admin_sid = data.get("admin_sid")
+    if admin_sid:
+        socketio.emit("admin_event", {
+            "event": "exec_result",
+            "output": data.get("output", ""),
+            "client_id": data.get("client_id", "")
+        }, to=admin_sid)
 
 
 @socketio.on("disconnect")
 def on_disconnect():
-    from flask import request
     sid = request.sid
 
     # Nếu là admin

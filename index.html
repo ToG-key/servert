@@ -72,15 +72,14 @@
     </div>
 
     <script>
+        // Sử dụng polling làm giao thức chính để tránh bị chặn
         const socket = io({ transports: ["polling", "websocket"] });
 
-        // 1. KẾT NỐI VÀ ĐĂNG KÝ ADMIN
         socket.on("connect", () => {
             log("✅ Đã kết nối tới Server");
             socket.emit("register", {"type": "admin"});
         });
 
-        // 2. NHẬN DỮ LIỆU CẬP NHẬT TỪ SERVER
         socket.on("admin_event", (msg) => {
             if (msg.event === "init" || msg.event === "clients") {
                 updateTable(msg.clients);
@@ -91,7 +90,7 @@
             }
         });
 
-        // 3. TỰ ĐỘNG GỬI LỆNH XIN DỮ LIỆU MỖI 1 GIÂY
+        // CƠ CHẾ QUAN TRỌNG: Tự động xin dữ liệu mỗi 1 giây
         setInterval(() => {
             if (socket.connected) {
                 socket.emit("admin_command", {"action": "list"});

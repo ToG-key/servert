@@ -1,6 +1,5 @@
 import os
 import time
-import json
 import threading
 from flask import Flask, jsonify, request, send_from_directory
 from flask_socketio import SocketIO, emit
@@ -15,6 +14,56 @@ admins = set()
 lock = threading.Lock()
 CLIENT_TIMEOUT = 15
 
+# ==========================================
+# ROUTE API (Giúp Web realtime không lo chặn)
+# ==========================================
+@app.route("/api/clients")
+def api_clients():
+    """Web gọi API này mỗi 1 giây để lấy danh sách mới nhất"""
+    now = time.time()
+    with lock:
+        data = [
+            {
+                "client_id": cid,
+                "hostname": info["hostname"],
+                "os": info["os"],
+                "room": info["room"],
+                "ip": info["ip"],
+                "online_for": round(now - info["last_seen"], 1),
+            }
+            for cid, info in clients.items()
+            if now - info["last_seen"] <= CLIENT_TIMEOUT
+        ]
+    return jsonify(data)
+
+@app.route("/api/command", methods=["POST"])
+def api_command():
+    """Web gửi lệnh qua API này (không cần dùng Socket)"""
+    data = request.json
+    action = data.get("action")
+    
+    if action == "broadcast":
+        msg = data.get("message", "")
+        if msg:
+            for cid, info in clients.items():
+                socketio.emit("admin_msg", {"message": f"[THÔNG BÁO] {msg}"}, to=info["sid"])
+        return jsonify({"ok": True})
+        
+    elif action == "exec":
+        target = data.get("client_id")
+        cmd = data.get("command", "")
+        with lock:
+            c = clients.get(target)
+        if c:
+            socketio.emit("exec_command", {"command": cmd, "admin_sid": "web"}, to=c["sid"])
+            return jsonify({"ok": True})
+        return jsonify({"ok": False, "error": "client not found"})
+
+    return jsonify({"ok": False})
+
+# ==========================================
+# GIAO DIỆN WEB & SOCKET CŨ
+# ==========================================
 @app.route("/")
 def serve_index():
     return send_from_directory('.', 'index.html')
@@ -47,7 +96,7 @@ def notify_admins(event, data):
         except:
             admins.discard(sid)
 
-# Luồng tự động đẩy (dự phòng)
+# Luồng tự động đẩy (dự phòng cho Socket)
 def auto_realtime_loop():
     while True:
         if admins:
@@ -57,7 +106,7 @@ def auto_realtime_loop():
                     socketio.emit("admin_event", payload, to=sid)
                 except:
                     admins.discard(sid)
-        time.sleep(2) # 2 giây/lần
+        time.sleep(2)
 
 @socketio.on("connect")
 def on_connect(auth):
@@ -106,7 +155,6 @@ def on_admin_command(data):
     action = data.get("action")
 
     if action == "list":
-        # Trả lời NGAY LẬP TỨC khi Web hỏi (Polling 1s)
         emit("admin_event", {"event": "clients", "clients": snapshot_clients()})
 
     elif action == "send":
@@ -169,8 +217,6 @@ def on_disconnect():
         })
 
 if __name__ == "__main__":
-    # Khởi động luồng đẩy dữ liệu (dự phòng)
     threading.Thread(target=auto_realtime_loop, daemon=True).start()
-    
     port = int(os.environ.get("PORT", 10000))
     socketio.run(app, host="0.0.0.0", port=port)

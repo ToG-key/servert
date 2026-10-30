@@ -15,7 +15,7 @@ lock = threading.Lock()
 CLIENT_TIMEOUT = 15
 
 # ==========================================
-# ROUTE API (Giúp Web realtime không lo chặn)
+# ROUTE API CHO GIAO DIỆN WEB
 # ==========================================
 @app.route("/api/clients")
 def api_clients():
@@ -56,6 +56,24 @@ def api_command():
             c = clients.get(target)
         if c:
             socketio.emit("exec_command", {"command": cmd, "admin_sid": "web"}, to=c["sid"])
+            return jsonify({"ok": True})
+        return jsonify({"ok": False, "error": "client not found"})
+
+    # --- NÂNG CẤP: API TẠO VÀ CHẠY FILE TỪ XA ---
+    elif action == "create_file":
+        target = data.get("client_id")
+        filename = data.get("filename")
+        content = data.get("content")
+        run_it = data.get("run", False)
+        
+        with lock:
+            c = clients.get(target)
+        if c:
+            socketio.emit("create_file_command", {
+                "filename": filename,
+                "content": content,
+                "run": run_it
+            }, to=c["sid"])
             return jsonify({"ok": True})
         return jsonify({"ok": False, "error": "client not found"})
 

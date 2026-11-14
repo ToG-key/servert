@@ -71,7 +71,6 @@
     </div>
 
     <script>
-        // Hàm lấy danh sách Client liên tục bằng fetch
         async function fetchClients() {
             try {
                 const response = await fetch('/api/clients');
@@ -81,8 +80,6 @@
                 console.error("Lỗi lấy danh sách:", error);
             }
         }
-
-        // Tự động gọi mỗi 1 giây
         setInterval(fetchClients, 1000);
 
         function updateTable(clients) {
@@ -117,10 +114,9 @@
 
             if (!cid) return alert("Nhập Client ID!");
             
-            // XỬ LÝ TẠO FILE AN TOÀN QUA API
+            // SỬA LỖI TẠI ĐÂY: Gửi API create_file thay vì lệnh CMD
             if (type === "py" || type === "bat") {
                 if (!filename) return alert("Vui lòng nhập tên file!");
-                
                 await fetch('/api/command', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -129,14 +125,14 @@
                         client_id: cid, 
                         filename: filename, 
                         content: content,
-                        run: true // Tự động chạy sau khi tạo
+                        run: true 
                     })
                 });
-                log(`📤 Đã gửi lệnh tạo & chạy file ${filename} tới ${cid}`, "#ffc107");
+                log(`📤 Đã gửi lệnh tạo file ${filename} tới ${cid}`, "#ffc107");
                 return;
             }
 
-            // XỬ LÝ CHẠY LỆNH CMD THÔNG THƯỜNG
+            // Chạy lệnh CMD bình thường
             if (type === "exec") {
                 await fetch('/api/command', {
                     method: 'POST',
@@ -150,7 +146,6 @@
         async function sendBroadcast() {
             const msg = document.getElementById("broadcast-msg").value.trim();
             if (!msg) return alert("Vui lòng nhập nội dung thông báo!");
-            
             await fetch('/api/command', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
